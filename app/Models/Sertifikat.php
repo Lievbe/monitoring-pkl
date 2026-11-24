@@ -17,6 +17,12 @@ class Sertifikat extends Model
         'qr_code_path',
         'verifikasi_url',
         'is_valid',
+        'logo_sekolah_path',
+        'logo_perusahaan_path',
+        'nama_sekolah',
+        'nama_perusahaan',
+        'nama_pembimbing',
+        'logos_snapshot_at',
     ];
 
     protected function casts(): array
@@ -24,6 +30,7 @@ class Sertifikat extends Model
         return [
             'tanggal_terbit' => 'date',
             'is_valid' => 'boolean',
+            'logos_snapshot_at' => 'datetime',
         ];
     }
 

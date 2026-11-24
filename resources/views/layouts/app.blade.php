@@ -11,6 +11,7 @@
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+        <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 
         <!-- Scripts -->
         @vite(['resources/css/app.css', 'resources/js/app.js'])
@@ -31,5 +32,7 @@
                 {{ $slot }}
             </main>
         </div>
+        <x-delete-confirmation-modal />
+        <script>document.addEventListener('DOMContentLoaded', () => window.lucide?.createIcons());</script>
     </body>
 </html>

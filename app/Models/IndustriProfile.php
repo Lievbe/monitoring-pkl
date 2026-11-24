@@ -15,6 +15,7 @@ class IndustriProfile extends Model
         'jabatan',
         'no_hp',
         'email_perusahaan',
+        'logo_path',
     ];
 
     public function user(): BelongsTo

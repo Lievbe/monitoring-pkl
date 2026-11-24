@@ -3,15 +3,19 @@
 namespace App\Http\Controllers;
 
 use App\Models\PKLSiswa;
+use App\Models\SchoolSetting;
 use App\Models\Sertifikat;
+use App\Services\CertificateLogoArchiver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class SertifikatController extends Controller
 {
-    public function generate(PKLSiswa $pklSiswa): RedirectResponse
+    public function generate(PKLSiswa $pklSiswa, CertificateLogoArchiver $archiver): RedirectResponse
     {
         if ($pklSiswa->status !== 'selesai') {
             throw ValidationException::withMessages([
@@ -35,6 +39,15 @@ class SertifikatController extends Controller
             'verifikasi_url' => route('sertifikat.show', $sertifikat),
         ]);
 
+        $industryProfile = $pklSiswa->industri?->industriProfile;
+        $archiver->capture(
+            $sertifikat,
+            SchoolSetting::current(),
+            $industryProfile?->logo_path,
+            $industryProfile?->nama_perusahaan ?: $pklSiswa->nama_perusahaan,
+            $industryProfile?->nama_pembimbing ?: $pklSiswa->nama_pembimbing,
+        );
+
         return redirect()->route('sertifikat.show', $sertifikat)
             ->with('success', 'Sertifikat berhasil dibuat. Pilih Cetak / Simpan PDF untuk mengunduhnya.');
     }
@@ -52,6 +65,35 @@ class SertifikatController extends Controller
             403,
         );
 
-        return view('sertifikat.cetak', compact('pklSiswa', 'sertifikat'));
+        $schoolSettings = SchoolSetting::current();
+
+        $isAdmin = $user->role === 'admin_hubin';
+
+        return view('sertifikat.cetak', compact('pklSiswa', 'sertifikat', 'schoolSettings', 'isAdmin'));
+    }
+
+    public function destroy(PKLSiswa $pklSiswa): RedirectResponse
+    {
+        $certificate = $pklSiswa->sertifikat()->first();
+        if (! $certificate) {
+            return redirect()->route('admin.dashboard')->with('error', 'Sertifikat pada penempatan ini tidak ditemukan.');
+        }
+
+        $certificateId = $certificate->id;
+        $paths = array_filter([$certificate->file_path, $certificate->qr_code_path]);
+        DB::transaction(fn () => $certificate->delete());
+
+        $publicDisk = Storage::disk('public');
+        foreach ($paths as $path) {
+            $isStillUsed = Sertifikat::query()
+                ->where(fn ($query) => $query->where('file_path', $path)->orWhere('qr_code_path', $path))
+                ->exists();
+            if (! $isStillUsed) {
+                $publicDisk->delete($path);
+            }
+        }
+        $publicDisk->deleteDirectory("sertifikat/arsip/{$certificateId}");
+
+        return redirect()->route('admin.dashboard')->with('success', 'Sertifikat berhasil dihapus. Periksa logo dan identitas sebelum menerbitkan ulang.');
     }
 }

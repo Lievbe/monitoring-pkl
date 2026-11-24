@@ -6,7 +6,7 @@
         </div>
         <h1 class="text-2xl font-bold tracking-tight text-slate-900">Buat akun siswa PKL</h1>
         <p class="mt-1.5 text-sm leading-6 text-slate-500">
-            Isi data di bawah untuk membuat akun. Akun guru &amp; pembimbing industri dibuat oleh admin sekolah.
+            Khusus pendaftaran siswa PKL. Akun pembimbing industri dibuat oleh admin sekolah.
         </p>
     </div>
 
@@ -123,6 +123,12 @@
             Sudah punya akun?
             <a href="{{ route('login') }}" class="font-semibold text-blue-600 hover:text-blue-700 transition-colors">
                 Masuk sekarang
+            </a>
+        </p>
+        <p class="text-center text-sm text-slate-500">
+            Anda guru?
+            <a href="{{ route('register.guru') }}" class="font-semibold text-indigo-600 hover:text-indigo-700 transition-colors">
+                Daftar sebagai guru
             </a>
         </p>
     </form>

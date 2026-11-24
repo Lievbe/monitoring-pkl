@@ -1,4 +1,4 @@
-<x-app-layout>
+<x-admin-layout>
     <x-slot name="header">
         <div class="mx-auto max-w-4xl">
             <a href="{{ route('admin.dashboard') }}" class="text-sm font-semibold text-blue-600 hover:text-blue-700">← Kembali ke Monitoring Hub</a>
@@ -64,4 +64,4 @@
             </form>
         </section>
     </main>
-</x-app-layout>
+</x-admin-layout>

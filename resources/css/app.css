@@ -1,3 +1,5 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+.account-menu-panel { opacity: 0; transform: translateY(-4px) scale(.98); transition: opacity .16s ease, transform .16s ease; }
+.account-menu-panel[data-open="true"] { opacity: 1; transform: translateY(0) scale(1); }

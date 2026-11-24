@@ -78,6 +78,12 @@
                 <a href="{{ route('register') }}" class="font-semibold text-blue-600 hover:text-blue-700 transition-colors">
                     Daftar sebagai siswa
                 </a>
+                @if (Route::has('register.guru'))
+                    <span class="mx-1 text-slate-300">|</span>
+                    <a href="{{ route('register.guru') }}" class="font-semibold text-indigo-600 hover:text-indigo-700 transition-colors">
+                        Daftar sebagai guru
+                    </a>
+                @endif
             </p>
         @endif
     </form>

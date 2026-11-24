@@ -29,7 +29,8 @@ class AdminDashboardController extends Controller
                 'certificates' => Sertifikat::query()->count(),
             ],
             'placements' => PKLSiswa::query()
-                ->with(['siswa.siswaProfile', 'guru.guruProfile', 'industri.industriProfile', 'sertifikat'])
+                ->with(['siswa.siswaProfile', 'guru.guruProfile', 'industri.industriProfile', 'sertifikat', 'penilaian'])
+                ->withCount('logbooks')
                 ->latest()
                 ->paginate(10),
         ]);
@@ -40,6 +41,16 @@ class AdminDashboardController extends Controller
         return view('admin.students.create');
     }
 
+    public function createTeacher(): View
+    {
+        return view('admin.teachers.create');
+    }
+
+    public function createIndustry(): View
+    {
+        return view('admin.industries.create');
+    }
+
     public function createPlacement(): View
     {
         return view('admin.placements.create', [
@@ -48,12 +59,18 @@ class AdminDashboardController extends Controller
                 ->with('siswaProfile')
                 ->orderBy('name')
                 ->get(),
+            'teachers' => User::query()
+                ->where('role', 'guru_pembimbing')
+                ->with('guruProfile')
+                ->orderBy('name')
+                ->get(),
+            'industries' => User::query()->where('role', 'pembimbing_industri')->with('industriProfile')->orderBy('name')->get(),
         ]);
     }
 
     public function editPlacement(PKLSiswa $pklSiswa): View
     {
-        $pklSiswa->load('siswa.siswaProfile');
+        $pklSiswa->load(['siswa.siswaProfile', 'sertifikat', 'penilaian'])->loadCount('logbooks');
 
         return view('admin.placements.edit', [
             'placement' => $pklSiswa,
@@ -62,6 +79,12 @@ class AdminDashboardController extends Controller
                 ->with('siswaProfile')
                 ->orderBy('name')
                 ->get(),
+            'teachers' => User::query()
+                ->where('role', 'guru_pembimbing')
+                ->with('guruProfile')
+                ->orderBy('name')
+                ->get(),
+            'industries' => User::query()->where('role', 'pembimbing_industri')->with('industriProfile')->orderBy('name')->get(),
         ]);
     }
 
@@ -78,6 +101,9 @@ class AdminDashboardController extends Controller
             'mapel' => ['nullable', 'string', 'max:255'],
             'nama_perusahaan' => ['required_if:role,pembimbing_industri', 'nullable', 'string', 'max:255'],
             'nama_pembimbing' => ['required_if:role,pembimbing_industri', 'nullable', 'string', 'max:255'],
+            'alamat_perusahaan' => ['nullable', 'string', 'max:255'],
+            'no_hp_perusahaan' => ['nullable', 'string', 'max:50'],
+            'jabatan_pembimbing' => ['nullable', 'string', 'max:255'],
         ]);
 
         DB::transaction(function () use ($validated): void {
@@ -105,6 +131,9 @@ class AdminDashboardController extends Controller
                     'user_id' => $user->id,
                     'nama_perusahaan' => $validated['nama_perusahaan'],
                     'nama_pembimbing' => $validated['nama_pembimbing'],
+                    'alamat' => $validated['alamat_perusahaan'] ?? null,
+                    'no_hp' => $validated['no_hp_perusahaan'] ?? null,
+                    'jabatan' => $validated['jabatan_pembimbing'] ?? null,
                 ]),
             };
         });
@@ -117,8 +146,8 @@ class AdminDashboardController extends Controller
     {
         $validated = $request->validate([
             'siswa_id' => ['required', Rule::exists('users', 'id')->where(fn (QueryBuilder $query) => $query->where('role', 'siswa_pkl'))],
-            'guru_nama' => ['required', 'string', 'max:255'],
-            'guru_nip' => ['nullable', 'string', 'max:100'],
+            'guru_id' => ['required', Rule::exists('users', 'id')->where(fn (QueryBuilder $query) => $query->where('role', 'guru_pembimbing'))],
+            'industri_id' => ['nullable', Rule::exists('users', 'id')->where(fn (QueryBuilder $query) => $query->where('role', 'pembimbing_industri'))],
             'nama_perusahaan' => ['required', 'string', 'max:255'],
             'nama_pembimbing' => ['required', 'string', 'max:255'],
             'tanggal_mulai' => ['required', 'date'],
@@ -127,7 +156,14 @@ class AdminDashboardController extends Controller
             'catatan' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        DB::transaction(function () use ($validated): void {
+        $teacher = User::query()->with('guruProfile')->findOrFail($validated['guru_id']);
+        $industry = isset($validated['industri_id']) ? User::query()->with('industriProfile')->findOrFail($validated['industri_id']) : null;
+        if ($industry?->industriProfile) {
+            $validated['nama_perusahaan'] = $industry->industriProfile->nama_perusahaan;
+            $validated['nama_pembimbing'] = $industry->industriProfile->nama_pembimbing;
+        }
+
+        DB::transaction(function () use ($validated, $teacher): void {
             User::query()->whereKey($validated['siswa_id'])->lockForUpdate()->firstOrFail();
 
             $hasCurrentPlacement = PKLSiswa::query()
@@ -143,8 +179,8 @@ class AdminDashboardController extends Controller
 
             PKLSiswa::query()->create([
                 ...$validated,
-                'guru_id' => null,
-                'industri_id' => null,
+                'guru_nama' => $teacher->guruProfile?->nama_lengkap ?? $teacher->name,
+                'guru_nip' => $teacher->guruProfile?->nip,
             ]);
         });
 
@@ -170,8 +206,8 @@ class AdminDashboardController extends Controller
     {
         $validated = $request->validate([
             'siswa_id' => ['required', Rule::exists('users', 'id')->where(fn (QueryBuilder $query) => $query->where('role', 'siswa_pkl'))],
-            'guru_nama' => ['required', 'string', 'max:255'],
-            'guru_nip' => ['nullable', 'string', 'max:100'],
+            'guru_id' => ['required', Rule::exists('users', 'id')->where(fn (QueryBuilder $query) => $query->where('role', 'guru_pembimbing'))],
+            'industri_id' => ['nullable', Rule::exists('users', 'id')->where(fn (QueryBuilder $query) => $query->where('role', 'pembimbing_industri'))],
             'nama_perusahaan' => ['required', 'string', 'max:255'],
             'nama_pembimbing' => ['required', 'string', 'max:255'],
             'tanggal_mulai' => ['required', 'date'],
@@ -180,7 +216,14 @@ class AdminDashboardController extends Controller
             'catatan' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        DB::transaction(function () use ($validated, $pklSiswa): void {
+        $teacher = User::query()->with('guruProfile')->findOrFail($validated['guru_id']);
+        $industry = isset($validated['industri_id']) ? User::query()->with('industriProfile')->findOrFail($validated['industri_id']) : null;
+        if ($industry?->industriProfile) {
+            $validated['nama_perusahaan'] = $industry->industriProfile->nama_perusahaan;
+            $validated['nama_pembimbing'] = $industry->industriProfile->nama_pembimbing;
+        }
+
+        DB::transaction(function () use ($validated, $pklSiswa, $teacher): void {
             User::query()->whereKey($validated['siswa_id'])->lockForUpdate()->firstOrFail();
 
             $hasOtherCurrentPlacement = PKLSiswa::query()
@@ -195,10 +238,35 @@ class AdminDashboardController extends Controller
                 ]);
             }
 
-            $pklSiswa->update($validated);
+            $pklSiswa->update([
+                ...$validated,
+                'guru_nama' => $teacher->guruProfile?->nama_lengkap ?? $teacher->name,
+                'guru_nip' => $teacher->guruProfile?->nip,
+            ]);
         });
 
         return redirect()->route('admin.dashboard')
             ->with('success', 'Data penempatan berhasil diperbarui.');
+    }
+
+    public function destroyPlacement(PKLSiswa $pklSiswa): RedirectResponse
+    {
+        $canDelete = DB::transaction(function () use ($pklSiswa): bool {
+            $placement = PKLSiswa::query()->whereKey($pklSiswa->id)->lockForUpdate()->firstOrFail();
+            if ($placement->logbooks()->exists() || $placement->penilaian()->exists() || $placement->sertifikat()->exists()) {
+                return false;
+            }
+
+            $placement->delete();
+
+            return true;
+        });
+
+        if (! $canDelete) {
+            return redirect()->route('admin.dashboard')
+                ->with('error', 'Penempatan tidak dapat dihapus karena memiliki logbook, penilaian, atau sertifikat.');
+        }
+
+        return redirect()->route('admin.dashboard')->with('success', 'Penempatan berhasil dihapus.');
     }
 }

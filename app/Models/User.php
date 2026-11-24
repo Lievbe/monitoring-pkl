@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password', 'role'])]
+#[Fillable(['name', 'email', 'password', 'role', 'avatar_path'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -47,6 +47,16 @@ class User extends Authenticatable
     public function placementsAsIndustry(): HasMany
     {
         return $this->hasMany(PKLSiswa::class, 'industri_id');
+    }
+
+    public function penilaianAsTeacher(): HasMany
+    {
+        return $this->hasMany(PenilaianSiswa::class, 'guru_id');
+    }
+
+    public function verifiedLogbooks(): HasMany
+    {
+        return $this->hasMany(LogbookHarian::class, 'verified_by');
     }
 
     /**

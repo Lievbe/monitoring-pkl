@@ -17,9 +17,9 @@ it('redirects each authenticated role to a working role-specific dashboard', fun
         ->assertOk()
         ->assertSee($heading);
 })->with([
-    'student' => ['siswa_pkl', 'siswa.dashboard', 'Dashboard PKL'],
-    'teacher' => ['guru_pembimbing', 'guru.dashboard', 'Dashboard bimbingan PKL'],
-    'industry mentor' => ['pembimbing_industri', 'industri.dashboard', 'Pemantauan siswa PKL'],
+    'student' => ['siswa_pkl', 'siswa.dashboard', 'Portal Siswa PKL'],
+    'teacher' => ['guru_pembimbing', 'guru.dashboard', 'Portal Pembimbing'],
+    'industry mentor' => ['pembimbing_industri', 'industri.dashboard', 'Pemantauan Siswa PKL di Perusahaan'],
     'admin' => ['admin_hubin', 'admin.dashboard', 'Monitoring Hub'],
 ]);
 
@@ -38,12 +38,13 @@ it('shows monitoring data and quick actions without inline data entry forms', fu
         ->get(route('admin.dashboard'))
         ->assertOk()
         ->assertSee('Monitoring Hub')
-        ->assertSee('Siswa terdaftar')
-        ->assertSee('PKL berjalan')
-        ->assertSee('PKL selesai')
-        ->assertSee('Sertifikat terbit')
+        ->assertSee('Siswa Terdaftar')
+        ->assertSee('PKL Berjalan')
+        ->assertSee('PKL Selesai')
+        ->assertSee('Sertifikat Terbit')
         ->assertSee('Aksi Cepat')
         ->assertSee(route('admin.students.create'), false)
+        ->assertSee(route('admin.teachers.create'), false)
         ->assertSee(route('admin.placements.create'), false)
         ->assertDontSee('name="guru_nama"')
         ->assertDontSee('name="nama_perusahaan"')
@@ -54,6 +55,8 @@ it('shows monitoring data and quick actions without inline data entry forms', fu
 it('keeps student registration and placement forms on their dedicated admin pages', function () {
     $admin = User::factory()->create(['role' => 'admin_hubin']);
     User::factory()->create(['role' => 'siswa_pkl']);
+    $teacher = User::factory()->create(['role' => 'guru_pembimbing']);
+    $teacher->guruProfile()->create(['nama_lengkap' => $teacher->name]);
 
     $this->actingAs($admin)
         ->get(route('admin.students.create'))
@@ -64,8 +67,14 @@ it('keeps student registration and placement forms on their dedicated admin page
     $this->get(route('admin.placements.create'))
         ->assertOk()
         ->assertSee('Penempatan PKL')
-        ->assertSee('name="guru_nama"', false)
+        ->assertSee('name="guru_id"', false)
         ->assertSee('name="nama_perusahaan"', false);
+
+    $this->get(route('admin.teachers.create'))
+        ->assertOk()
+        ->assertSee('Daftarkan Guru Pembimbing')
+        ->assertSee('name="role" value="guru_pembimbing"', false)
+        ->assertSee('name="nip"', false);
 });
 
 it('prevents students from opening admin quick action pages', function () {
@@ -73,6 +82,9 @@ it('prevents students from opening admin quick action pages', function () {
 
     $this->actingAs($student)
         ->get(route('admin.students.create'))
+        ->assertForbidden();
+
+    $this->get(route('admin.teachers.create'))
         ->assertForbidden();
 
     $this->get(route('admin.placements.create'))
@@ -150,6 +162,130 @@ it('lets a student submit a logbook for their active placement', function () {
     ]);
 });
 
+it('allows only one logbook per placement per day', function () {
+    $student = User::factory()->create(['role' => 'siswa_pkl']);
+    $teacher = User::factory()->create(['role' => 'guru_pembimbing']);
+    $industry = User::factory()->create(['role' => 'pembimbing_industri']);
+    $placement = PKLSiswa::query()->create([
+        'siswa_id' => $student->id,
+        'guru_id' => $teacher->id,
+        'industri_id' => $industry->id,
+        'tanggal_mulai' => now()->subWeek()->toDateString(),
+        'tanggal_selesai' => now()->addMonth()->toDateString(),
+        'status' => 'aktif',
+    ]);
+
+    $this->actingAs($student)->post(route('siswa.logbook.store'), [
+        'tanggal' => now()->toDateString(),
+        'kegiatan' => 'Menyelesaikan tugas harian',
+        'status_kehadiran' => 'hadir',
+    ])->assertRedirect(route('siswa.dashboard'));
+
+    $this->from(route('siswa.dashboard'))->post(route('siswa.logbook.store'), [
+        'tanggal' => now()->toDateString(),
+        'kegiatan' => 'Laporan kedua pada tanggal yang sama',
+        'status_kehadiran' => 'hadir',
+    ])->assertRedirect(route('siswa.dashboard'))
+        ->assertSessionHasErrors('tanggal');
+
+    $this->assertDatabaseCount('logbook_harian', 1);
+    $this->assertDatabaseHas('logbook_harian', [
+        'pkl_siswa_id' => $placement->id,
+        'kegiatan' => 'Menyelesaikan tugas harian',
+    ]);
+
+    $this->get(route('siswa.dashboard'))
+        ->assertOk()
+        ->assertSee('Laporan hari ini sudah dikirim.')
+        ->assertDontSee('name="kegiatan"', false);
+});
+
+it('lets a student correct a rejected logbook without creating a second daily report', function () {
+    $student = User::factory()->create(['role' => 'siswa_pkl']);
+    $teacher = User::factory()->create(['role' => 'guru_pembimbing']);
+    $industry = User::factory()->create(['role' => 'pembimbing_industri']);
+    $placement = PKLSiswa::query()->create([
+        'siswa_id' => $student->id,
+        'guru_id' => $teacher->id,
+        'industri_id' => $industry->id,
+        'tanggal_mulai' => now()->subWeek()->toDateString(),
+        'tanggal_selesai' => now()->addMonth()->toDateString(),
+        'status' => 'aktif',
+    ]);
+    $logbook = $placement->logbooks()->create([
+        'tanggal' => now()->subDay()->toDateString(),
+        'kegiatan' => 'Uraian yang perlu diperjelas',
+        'status_kehadiran' => 'hadir',
+        'verifikasi_status' => 'ditolak',
+        'catatan_guru' => 'Jelaskan bagian pekerjaan yang dilakukan.',
+    ]);
+
+    $this->actingAs($student)
+        ->get(route('siswa.dashboard', ['edit_logbook' => $logbook->id]))
+        ->assertOk()
+        ->assertSee('Perbaiki Logbook '.now()->subDay()->translatedFormat('d F Y'))
+        ->assertSee('Jelaskan bagian pekerjaan yang dilakukan.')
+        ->assertSee('Uraian yang perlu diperjelas');
+
+    $response = $this->actingAs($student)->put(route('siswa.logbook.update', $logbook), [
+        'tanggal' => now()->subDay()->toDateString(),
+        'kegiatan' => 'Memperjelas langkah kerja pada tugas harian',
+        'status_kehadiran' => 'hadir',
+    ]);
+
+    $response->assertRedirect(route('siswa.dashboard'))
+        ->assertSessionHas('success');
+
+    $this->assertDatabaseCount('logbook_harian', 1);
+    $this->assertDatabaseHas('logbook_harian', [
+        'id' => $logbook->id,
+        'kegiatan' => 'Memperjelas langkah kerja pada tugas harian',
+        'verifikasi_status' => 'belum',
+        'catatan_guru' => null,
+        'verified_by' => null,
+        'verified_at' => null,
+    ]);
+
+    $this->get(route('siswa.dashboard'))
+        ->assertOk()
+        ->assertSee('Memperjelas langkah kerja pada tugas harian')
+        ->assertSee('Menunggu Pemeriksaan Guru')
+        ->assertDontSee('Perbaiki dan Kirim Ulang');
+});
+
+it('does not let a student correct another student’s rejected logbook', function () {
+    $student = User::factory()->create(['role' => 'siswa_pkl']);
+    $otherStudent = User::factory()->create(['role' => 'siswa_pkl']);
+    $teacher = User::factory()->create(['role' => 'guru_pembimbing']);
+    $industry = User::factory()->create(['role' => 'pembimbing_industri']);
+    $placement = PKLSiswa::query()->create([
+        'siswa_id' => $otherStudent->id,
+        'guru_id' => $teacher->id,
+        'industri_id' => $industry->id,
+        'tanggal_mulai' => now()->subWeek()->toDateString(),
+        'tanggal_selesai' => now()->addMonth()->toDateString(),
+        'status' => 'aktif',
+    ]);
+    $logbook = $placement->logbooks()->create([
+        'tanggal' => now()->toDateString(),
+        'kegiatan' => 'Laporan milik siswa lain',
+        'status_kehadiran' => 'hadir',
+        'verifikasi_status' => 'ditolak',
+    ]);
+
+    $this->actingAs($student)->put(route('siswa.logbook.update', $logbook), [
+        'tanggal' => now()->toDateString(),
+        'kegiatan' => 'Mengubah laporan siswa lain',
+        'status_kehadiran' => 'hadir',
+    ])->assertNotFound();
+
+    $this->assertDatabaseHas('logbook_harian', [
+        'id' => $logbook->id,
+        'kegiatan' => 'Laporan milik siswa lain',
+        'verifikasi_status' => 'ditolak',
+    ]);
+});
+
 it('does not let a student submit a logbook before receiving an active placement', function () {
     $student = User::factory()->create(['role' => 'siswa_pkl']);
 
@@ -195,6 +331,32 @@ it('lets the assigned teacher verify a student logbook', function () {
         'verified_by' => $teacher->id,
         'catatan_guru' => 'Pekerjaan sudah sesuai.',
     ]);
+});
+
+it('shows assigned student logbooks to the teacher for review', function () {
+    $student = User::factory()->create(['role' => 'siswa_pkl']);
+    $teacher = User::factory()->create(['role' => 'guru_pembimbing']);
+    $industry = User::factory()->create(['role' => 'pembimbing_industri']);
+    $placement = PKLSiswa::query()->create([
+        'siswa_id' => $student->id,
+        'guru_id' => $teacher->id,
+        'industri_id' => $industry->id,
+        'tanggal_mulai' => now()->subWeek()->toDateString(),
+        'tanggal_selesai' => now()->addMonth()->toDateString(),
+        'status' => 'aktif',
+    ]);
+    $placement->logbooks()->create([
+        'tanggal' => now()->toDateString(),
+        'kegiatan' => 'Mengerjakan tugas harian di tempat PKL',
+        'status_kehadiran' => 'hadir',
+    ]);
+
+    $this->actingAs($teacher)
+        ->get(route('guru.dashboard'))
+        ->assertOk()
+        ->assertSee($student->name)
+        ->assertSee('Mengerjakan tugas harian di tempat PKL')
+        ->assertSee('1 Laporan Perlu Diperiksa');
 });
 
 it('does not let a teacher verify a logbook assigned to another teacher', function () {
@@ -316,14 +478,18 @@ it('lets an admin create a staff account and matching profile', function () {
     ]);
 });
 
-it('lets an admin assign a student using typed teacher and industry details', function () {
+it('lets an admin assign a student to a teacher account', function () {
     $admin = User::factory()->create(['role' => 'admin_hubin']);
     $student = User::factory()->create(['role' => 'siswa_pkl']);
+    $teacher = User::factory()->create(['role' => 'guru_pembimbing']);
+    $teacher->guruProfile()->create([
+        'nama_lengkap' => $teacher->name,
+        'nip' => '19870001',
+    ]);
 
     $response = $this->actingAs($admin)->post(route('admin.placements.store'), [
         'siswa_id' => $student->id,
-        'guru_nama' => 'Ibu Siti Rahmawati',
-        'guru_nip' => '19870001',
+        'guru_id' => $teacher->id,
         'nama_perusahaan' => 'PT Karya Bersama',
         'nama_pembimbing' => 'Bapak Andi',
         'tanggal_mulai' => now()->toDateString(),
@@ -334,24 +500,26 @@ it('lets an admin assign a student using typed teacher and industry details', fu
     $response->assertRedirect(route('admin.dashboard'));
     $this->assertDatabaseHas('pkl_siswa', [
         'siswa_id' => $student->id,
-        'guru_id' => null,
+        'guru_id' => $teacher->id,
         'industri_id' => null,
-        'guru_nama' => 'Ibu Siti Rahmawati',
+        'guru_nama' => $teacher->name,
         'guru_nip' => '19870001',
         'nama_perusahaan' => 'PT Karya Bersama',
         'nama_pembimbing' => 'Bapak Andi',
         'status' => 'aktif',
     ]);
 
-    $this->assertDatabaseMissing('users', ['role' => 'guru_pembimbing']);
     $this->assertDatabaseMissing('users', ['role' => 'pembimbing_industri']);
 });
 
-it('lets an admin edit placement details without creating teacher or industry accounts', function () {
+it('lets an admin edit placement details and keep the assigned teacher account', function () {
     $admin = User::factory()->create(['role' => 'admin_hubin']);
     $student = User::factory()->create(['role' => 'siswa_pkl']);
+    $teacher = User::factory()->create(['role' => 'guru_pembimbing']);
+    $teacher->guruProfile()->create(['nama_lengkap' => 'Guru Lama']);
     $placement = PKLSiswa::query()->create([
         'siswa_id' => $student->id,
+        'guru_id' => $teacher->id,
         'guru_nama' => 'Guru Lama',
         'nama_perusahaan' => 'Perusahaan Lama',
         'nama_pembimbing' => 'Pembimbing Lama',
@@ -363,13 +531,13 @@ it('lets an admin edit placement details without creating teacher or industry ac
     $this->actingAs($admin)
         ->get(route('admin.placements.edit', $placement))
         ->assertOk()
-        ->assertSee('Edit data penempatan PKL')
+        ->assertSee('Edit Data Penempatan PKL')
+        ->assertSee('name="guru_id"', false)
         ->assertSee('Guru Lama');
 
     $this->put(route('admin.placements.update', $placement), [
         'siswa_id' => $student->id,
-        'guru_nama' => 'Guru Baru',
-        'guru_nip' => '19870002',
+        'guru_id' => $teacher->id,
         'nama_perusahaan' => 'Perusahaan Baru',
         'nama_pembimbing' => 'Pembimbing Baru',
         'tanggal_mulai' => now()->toDateString(),
@@ -380,22 +548,24 @@ it('lets an admin edit placement details without creating teacher or industry ac
 
     $this->assertDatabaseHas('pkl_siswa', [
         'id' => $placement->id,
-        'guru_nama' => 'Guru Baru',
-        'guru_nip' => '19870002',
+        'guru_id' => $teacher->id,
+        'guru_nama' => 'Guru Lama',
+        'guru_nip' => null,
         'nama_perusahaan' => 'Perusahaan Baru',
         'nama_pembimbing' => 'Pembimbing Baru',
         'catatan' => 'Catatan yang diperbarui',
     ]);
 
-    $this->assertDatabaseMissing('users', ['role' => 'guru_pembimbing']);
     $this->assertDatabaseMissing('users', ['role' => 'pembimbing_industri']);
 });
 
 it('does not let an admin edit a student into a second active placement', function () {
     $admin = User::factory()->create(['role' => 'admin_hubin']);
     $student = User::factory()->create(['role' => 'siswa_pkl']);
+    $teacher = User::factory()->create(['role' => 'guru_pembimbing']);
     $placement = PKLSiswa::query()->create([
         'siswa_id' => $student->id,
+        'guru_id' => $teacher->id,
         'guru_nama' => 'Guru Satu',
         'nama_perusahaan' => 'Perusahaan Satu',
         'nama_pembimbing' => 'Pembimbing Satu',
@@ -405,6 +575,7 @@ it('does not let an admin edit a student into a second active placement', functi
     ]);
     PKLSiswa::query()->create([
         'siswa_id' => $student->id,
+        'guru_id' => $teacher->id,
         'guru_nama' => 'Guru Dua',
         'nama_perusahaan' => 'Perusahaan Dua',
         'nama_pembimbing' => 'Pembimbing Dua',
@@ -417,7 +588,7 @@ it('does not let an admin edit a student into a second active placement', functi
         ->from(route('admin.placements.edit', $placement))
         ->put(route('admin.placements.update', $placement), [
             'siswa_id' => $student->id,
-            'guru_nama' => 'Guru Satu Diubah',
+            'guru_id' => $teacher->id,
             'nama_perusahaan' => 'Perusahaan Satu',
             'nama_pembimbing' => 'Pembimbing Satu',
             'tanggal_mulai' => now()->toDateString(),

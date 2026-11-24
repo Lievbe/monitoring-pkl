@@ -1,4 +1,4 @@
-<x-app-layout>
+<x-admin-layout>
     <x-slot name="header">
         <div class="rounded-xl border border-blue-100 bg-white p-6 shadow-sm">
             <div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
@@ -52,14 +52,25 @@
                     </select>
                 </div>
 
-                <div>
-                    <x-input-label for="guru_nama" value="Nama Guru Pembimbing" />
-                    <x-text-input id="guru_nama" name="guru_nama" type="text" class="mt-1 block w-full" :value="old('guru_nama', $placement->guru_nama ?: ($placement->guru?->guruProfile?->nama_lengkap ?? $placement->guru?->name))" required />
-                    <x-input-error :messages="$errors->get('guru_nama')" class="mt-1.5" />
+                <div class="sm:col-span-2">
+                    <x-input-label for="guru_id" value="Akun guru pembimbing" />
+                    <select id="guru_id" name="guru_id" required class="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none">
+                        <option value="">Pilih guru pembimbing</option>
+                        @foreach ($teachers as $teacher)
+                            <option value="{{ $teacher->id }}" @selected(old('guru_id', $placement->guru_id) == $teacher->id)>{{ $teacher->guruProfile?->nama_lengkap ?? $teacher->name }}{{ $teacher->guruProfile?->nip ? ' — NIP '.$teacher->guruProfile->nip : '' }}</option>
+                        @endforeach
+                    </select>
+                    <x-input-error :messages="$errors->get('guru_id')" class="mt-1.5" />
                 </div>
-                <div>
-                    <x-input-label for="guru_nip" value="NIP Guru (opsional)" />
-                    <x-text-input id="guru_nip" name="guru_nip" type="text" class="mt-1 block w-full" :value="old('guru_nip', $placement->guru_nip)" />
+                <div class="sm:col-span-2">
+                    <x-input-label for="industri_id" value="Akun perusahaan mitra (opsional)" />
+                    <select id="industri_id" name="industri_id" class="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none">
+                        <option value="">Tanpa akun perusahaan</option>
+                        @foreach ($industries as $industry)
+                            <option value="{{ $industry->id }}" data-company="{{ $industry->industriProfile?->nama_perusahaan }}" data-mentor="{{ $industry->industriProfile?->nama_pembimbing }}" @selected(old('industri_id', $placement->industri_id) == $industry->id)>{{ $industry->industriProfile?->nama_perusahaan ?: $industry->name }} — {{ $industry->name }}</option>
+                        @endforeach
+                    </select>
+                    <x-input-error :messages="$errors->get('industri_id')" class="mt-1.5" />
                 </div>
                 <div>
                     <x-input-label for="nama_perusahaan" value="Nama Perusahaan / Mitra" />
@@ -102,6 +113,18 @@
                     </a>
                 </div>
             </form>
+            @if ($placement->logbooks_count === 0 && ! $placement->penilaian && ! $placement->sertifikat)
+                <div class="border-t border-slate-100 px-6 py-4"><form method="POST" action="{{ route('admin.placements.destroy', $placement) }}">@csrf @method('DELETE')<button type="button" data-delete-trigger data-delete-name="penempatan {{ $placement->siswa?->siswaProfile?->nama_lengkap ?: $placement->siswa?->name }}" class="inline-flex min-h-10 items-center gap-2 rounded-xl border border-red-200 px-4 text-sm font-bold text-red-600 hover:bg-red-50"><i data-lucide="trash-2" class="h-4 w-4"></i>Hapus Penempatan</button></form></div>
+            @endif
         </section>
     </div>
-</x-app-layout>
+    <script>
+        document.getElementById('industri_id').addEventListener('change', (event) => {
+            const option = event.target.selectedOptions[0];
+            if (option.value) {
+                document.getElementById('nama_perusahaan').value = option.dataset.company || '';
+                document.getElementById('nama_pembimbing').value = option.dataset.mentor || '';
+            }
+        });
+    </script>
+</x-admin-layout>
